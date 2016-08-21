@@ -36,7 +36,7 @@ def calculate_release_time(difficulty):
     elif difficulty == 'Long':
         start_time = start_time + timedelta(hours=LONG)
 
-    return datetime.strftime(start_time, '[%b %d] @ %I:%M%p')
+    return start_time
 
 def remove_lockup(user):
     """
@@ -200,7 +200,7 @@ def difficulty(bot, update):
     db.hset(user_key, 'starttime', datetime.today())
 
     msg = 'You wish to be locked up for a %s while?\n\n' % update.message.text.lower()
-    msg += 'You wont be let allowed to unlock until [%s].\n\n' % endtime
+    msg += 'You wont be let allowed to unlock until [%s].\n\n' % datetime.strftime(endtime, '[%b %d] @ %I:%M%p')
     msg += '*Is this OK?* (last chance to back out)'
 
     bot.sendMessage(update.message.chat_id,
