@@ -1,13 +1,10 @@
-#!/usr/bin/env python
-
 import logging
+import configparser
 from datetime import datetime, timedelta
 
 from telegram.ext import (Updater, CommandHandler, ConversationHandler,
-                          RegexHandler, MessageHandler, InlineQueryHandler,
-                          Filters)
-from telegram import (ReplyKeyboardMarkup, InlineQueryResultArticle,
-                      InputTextMessageContent)
+                          RegexHandler, MessageHandler, Filters)
+from telegram import (ReplyKeyboardMarkup)
 
 from secret import token
 
@@ -17,8 +14,9 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 logger = logging.getLogger(__name__)
 
-DIFFICULTY, CONFIRM = range(2)
-
+# Configuration
+config = configparser.ConfigParser()
+config.read_file(open('config.ini'))
 
 # Helper functions
 def calculate_release_time(difficulty):
@@ -31,19 +29,44 @@ def calculate_release_time(difficulty):
     elif difficulty == 'Long':
         start_time = start_time + timedelta(weeks=1)
 
-    return datetime.strftime(start_time, "[%b %d] @ %I:%M%p")
+    return datetime.strftime(start_time, '[%b %d] @ %I:%M%p')
 
+# lockme variables
+DIFFICULTY, CONFIRM = range(2)
 
 # Main functions
 def start(bot, update):
+    '''
+        Show a welcome message and information about available commands.
+    '''
+    user = update.message.from_user
+
+    # Welcome message / Help screen
+    msg = 'Welcome to KeyholderBot.\n'
+    msg += 'Please select from the following options:\n'
+    msg += '(options in italics are still being worked on)\n\n'
+    msg += '*>> %s*\n' % user.first_name
+    msg += '/lockme - Decide how long you will be locked\n'
+    msg += '_/timeleft - How long until you can unlock?\n_'
+    msg += '_/unlockme - End your current lockup, after confirmation\n\n_'
+    msg += '*>> Others*\n'
+    msg += '_/vote @username - Display the voting options for a given user.\n_'
+    msg += '_/rtd - Alter the time left for a random user.\n_'
+    msg += '/list - List currently locked users.\n'
+
+    bot.sendMessage(update.message.chat_id,
+                    text=msg,
+                    parse_mode='Markdown')
+
+def lockme(bot, update):
     reply_keyboard = [['Short', 'Medium', 'Long']]
 
     bot.sendMessage(update.message.chat_id, 
-                    text='Welcome to LockBot. I do not seem to know you yet. '
-                         'How long should you stay locked up? \n'
+                    text='How long should you stay locked up? \n'
                          '(type /cancel to end this at any time)',
                     reply_markup=ReplyKeyboardMarkup(reply_keyboard, 
-                                                     one_time_keyboard=True))
+                                                     one_time_keyboard=True,
+                                                     resize_keyboard=True))
 
     return DIFFICULTY
 
@@ -63,7 +86,8 @@ def difficulty(bot, update):
                             % (update.message.text.lower(), endtime),
                     parse_mode='Markdown',
                     reply_markup=ReplyKeyboardMarkup(reply_keyboard,
-                                                     one_time_keyboard=True))
+                                                     one_time_keyboard=True,
+                                                     resize_keyboard=True))
 
     return CONFIRM
 
@@ -78,8 +102,8 @@ def confirm(bot, update):
     elif update.message.text == 'Yes':
         bot.sendMessage(update.message.chat_id,
                         text='Locked and confirmed. '
-                             'You are not allowed to uncage until: *%s.*'
-                               % ("END TIME"),
+                             'You are not allowed to unlock until: *%s.*'
+                               % ('END TIME'),
                         parse_mode='Markdown')
 
         logger.info('User %s locked up. Release time: %s' % (user.first_name, 
@@ -100,23 +124,8 @@ def error(bot, update, error):
 
 def unknown(bot, update):
     bot.sendMessage(chat_id=update.message.chat_id,
-                    text='Sorry, I did not understand that command. '
-                         'Try typing /start to begin your chastity session.')
-
-def list_locked_users(bot, update):
-    query = update.inline_query.query
-    if not query:
-        return
-    results = list()
-    results.append(
-        InlineQueryResultArticle(
-            id=query,
-            title='List Locked Users',
-            input_message_content=InputTextMessageContent('1. lizard')
-        )
-    )
-    bot.answerInlineQuery(update.inline_query.id, results=results)
-
+                    text='Sorry, I did not understand that. '
+                         'Try typing /start for a list of commands.')
 
 def main():
     updater = Updater(token)
@@ -125,23 +134,20 @@ def main():
 
     # Handlers
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('start', start)],
-
+        entry_points=[CommandHandler('lockme', lockme)],
         states={
             DIFFICULTY: [RegexHandler('^(Short|Medium|Long)$', difficulty)],
-
             CONFIRM: [RegexHandler('^(Yes|No)$', confirm)],
-
         },
-
         fallbacks=[CommandHandler('cancel', cancel)]
     )
 
+    start_handler = CommandHandler('start', start)
     unknown_handler = MessageHandler([Filters.command], unknown)
-    inline_list_users_handler = InlineQueryHandler(list_locked_users)
 
+    # Dispatcher adds
+    dp.add_handler(start_handler)
     dp.add_handler(conv_handler)
-    dp.add_handler(inline_list_users_handler)
     dp.add_handler(unknown_handler)
 
     # Log all errors

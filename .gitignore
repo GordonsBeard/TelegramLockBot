@@ -253,3 +253,5 @@ paket-files/
 /env
 /secret.py
 /TelegramLockBot.pyproj
+/__pycache__
+/TelegramLockBot.sln
