@@ -41,7 +41,7 @@ def start(bot, update):
     '''
     user = update.message.from_user
 
-    # Welcome message / Help screen
+    # Welcome message / help screen
     msg = 'Welcome to KeyholderBot.\n'
     msg += 'Please select from the following options:\n'
     msg += '(options in italics are still being worked on)\n\n'
