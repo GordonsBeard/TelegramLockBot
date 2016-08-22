@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import redis
 from telegram.ext import (Updater, CommandHandler, ConversationHandler,
                           RegexHandler, MessageHandler, Filters)
-from telegram import (ReplyKeyboardMarkup)
+from telegram import (ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup)
 
 # Enable logging
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s',
@@ -77,7 +77,8 @@ def start(bot, update):
     elif is_locked:
         msg += '/timeleft - How long until you can unlock?\n'
         msg += '/unlock - End your current lockup, after confirmation\n'
-    msg += '*\n>> Others*\n'
+    
+    #msg += '*\n>> Others*\n'
     #msg += '/vote @username - Display the voting options for a given user.\n'
     #msg += '/rtd - Alter the time left for a random user.\n'
     #msg += '/list - List currently locked users.\n\n'
@@ -122,12 +123,13 @@ def agree(bot, update):
         Confirms a user has agreed to the /notice.
     """
     user = update.message.from_user
-
+    user_key = 'user:{0}'.format(user.username)
     msg = 'Thank you for agreeing to these terms.\n'
     msg += 'You may now begin a lockup process with the /lockme command'
 
     # Set the notice flag on the user's account
-    db.hset('user:{0}'.format(user.username), 'notice', 'True')
+    db.hset(user_key, 'notice', 'True')
+    db.hset(user_key, 'firstname', user.first_name)
 
     bot.sendMessage(update.message.chat_id,
                     text=msg)
@@ -150,7 +152,7 @@ def lockme(bot, update):
     if not accepted_notice:
         msg = 'You have not agreed to the /notice '
         msg += 'Lockup cannot proceed until you agree to the terms.'
-        bot.sendMessage(update.message.chat_id,
+        bot.sendMessage(    update.message.chat_id,
                         text=msg)
         return
 
@@ -365,6 +367,44 @@ def unlocked(bot, update):
         
     return ConversationHandler.END
 
+def vote(bot, update, args):
+    if len(args) == 0:
+        bot.sendMessage(update.message.chat_id,
+                        text='Please provide a username. '
+                            'Example: /vote @Username')
+        return
+
+    # User information
+    user = update.message.from_user
+    user_key = 'user:{0}'.format(user.username)
+
+    # Other user information
+    other_user_key = 'user:{0}'.format(args[0].replace("@", ""))
+    other_user_locked = db.hexists(other_user_key, 'endtime')
+    
+    if not other_user_locked:
+        msg = 'This user is not currently locked.'
+        bot.sendMessage(update.message.chat_id,
+                        text=msg)
+    else:
+        #TODO callbacks?
+        markup = [[InlineKeyboardButton('Add', callback_data='add'), 
+                    InlineKeyboardButton('Remove', callback_data='del')]]
+
+        other_user_name = db.hget(other_user_key, 'firstname')
+        difficulty = db.hget(other_user_key, 'difficulty')
+        endtime = db.hget(other_user_key, 'endtime')
+
+        msg = '%s is locked for a "%s" while.\n' % (other_user_name, difficulty) 
+        msg += 'They are currently slated to be unlocked [%s].\n' % endtime
+        msg += '*Would you like to Add or Remove time to/from this lockup?*'
+
+        bot.sendMessage(update.message.chat_id, 
+                        text=msg,
+                        reply_markup=InlineKeyboardMarkup(markup))
+
+    return
+
 def cancel(bot, update):
     """
         Cancels the lockme/unlock conversation, will remove any db entry.
@@ -416,6 +456,7 @@ def main():
     start_handler = CommandHandler('start', start)
     notice_handler = CommandHandler('notice', notice)
     agree_handler = CommandHandler('agree', agree)
+    vote_handler = CommandHandler('vote', vote, pass_args=True)
     timeleft_handler = CommandHandler('timeleft', timeleft)
     unknown_handler = MessageHandler([Filters.command], unknown)
 
@@ -423,6 +464,7 @@ def main():
     dp.add_handler(start_handler)
     dp.add_handler(notice_handler)
     dp.add_handler(conv_handler)
+    dp.add_handler(vote_handler)
     dp.add_handler(unlock_conv_handler)
     dp.add_handler(timeleft_handler)
     dp.add_handler(agree_handler)
