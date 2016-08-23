@@ -4,7 +4,8 @@ from datetime import datetime, timedelta
 
 import redis
 from telegram.ext import (Updater, CommandHandler, ConversationHandler,
-                          RegexHandler, MessageHandler, Filters)
+                          RegexHandler, MessageHandler, Filters,
+                          CallbackQueryHandler)
 from telegram import (ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup)
 
 # Enable logging
@@ -48,6 +49,8 @@ def remove_lockup(user):
     db.hdel(user_key, 'difficulty')
     db.hdel(user_key, 'endtime')
     db.hdel(user_key, 'voting')
+    db.hdel(user_key, 'advotes')
+    db.hdel(user_key, 'delvotes')
 
 # Main functions
 def start(bot, update):
@@ -273,6 +276,9 @@ def confirm_voting(bot, update):
         msg = 'The public shall not alter your unlock time.'
     elif update.message.text == 'Yes':
         db.hset(user_key, 'voting', 'True')
+        db.hset(user_key, 'addvotes', '0')
+        db.hset(user_key, 'delvotes', '0')
+
         msg = 'Users will now be able to add or remove time from your lockup '
         msg += 'by using the command "/vote @%s"' % user.username
 
@@ -368,6 +374,10 @@ def unlocked(bot, update):
     return ConversationHandler.END
 
 def vote(bot, update, args):
+    """
+        Display the voting dialogue to add/remove time
+    """
+    # If user did not supply a name, tell them.
     if len(args) == 0:
         bot.sendMessage(update.message.chat_id,
                         text='Please provide a username. '
@@ -381,17 +391,29 @@ def vote(bot, update, args):
     # Other user information
     other_user_key = 'user:{0}'.format(args[0].replace("@", ""))
     other_user_locked = db.hexists(other_user_key, 'endtime')
-    
+    other_user_name = db.hget(other_user_key, 'username')
+
+    # Do not continue if user is not locked
     if not other_user_locked:
         msg = 'This user is not currently locked.'
         bot.sendMessage(update.message.chat_id,
                         text=msg)
+    # User has endtime, presumably locked
     else:
-        #TODO callbacks?
-        markup = [[InlineKeyboardButton('Add', callback_data='add'), 
-                    InlineKeyboardButton('Remove', callback_data='del')]]
+        # Do not continue if user does not have voting enabled
+        if db.hget(other_user_key, 'voting') == b'False':
+            bot.sendMessage(update.message.chat_id,
+                            text='User does not allow voting on their lockup.')
+            return
 
-        other_user_name = db.hget(other_user_key, 'firstname')
+        addvotes, delvotes = db.hmget(other_user_key, 'addvotes', 'delvotes')
+
+        callback_keyboard = [[InlineKeyboardButton('Add [%s]' % addvotes, 
+                                                   callback_data='add:%s' % user.username), 
+                              InlineKeyboardButton('Remove [%s]' % delvotes, 
+                                                   callback_data='del:%s' % user.username)]]
+
+        
         difficulty = db.hget(other_user_key, 'difficulty')
         endtime = db.hget(other_user_key, 'endtime')
 
@@ -401,9 +423,35 @@ def vote(bot, update, args):
 
         bot.sendMessage(update.message.chat_id, 
                         text=msg,
-                        reply_markup=InlineKeyboardMarkup(markup))
+                        reply_markup=InlineKeyboardMarkup(callback_keyboard))
 
     return
+
+def button(bot, update):
+    query = update.callback_query
+    print(query.data)
+    vote, username = query.data.split(':')
+    user_key = 'user:{0}'.format(username)
+
+    # Add a voting record to the votelist
+    db.hset('votelist:%s' % username, query.from_user.username, 'True')
+
+    if vote == 'add':
+        db.hincrby(user_key, 'addvotes')
+    elif vote == 'del':
+        db.hincrby(user_key, 'delvotes')
+
+    addvotes, delvotes = db.hmget(user_key, 'addvotes', 'delvotes')
+
+    callback_keyboard = [[InlineKeyboardButton('Add [%s]' % addvotes,
+                                              callback_data='add:%s' % username), 
+                         InlineKeyboardButton('Remove [%s]' % delvotes,
+                                              callback_data='del:%s' % username)]]
+
+
+    bot.editMessageReplyMarkup(chat_id=query.message.chat_id,
+                            message_id=query.message.message_id,
+                            reply_markup=InlineKeyboardMarkup(callback_keyboard))
 
 def cancel(bot, update):
     """
@@ -458,6 +506,7 @@ def main():
     agree_handler = CommandHandler('agree', agree)
     vote_handler = CommandHandler('vote', vote, pass_args=True)
     timeleft_handler = CommandHandler('timeleft', timeleft)
+    vote_callback_handler = CallbackQueryHandler(button)
     unknown_handler = MessageHandler([Filters.command], unknown)
 
     # Dispatcher
@@ -468,6 +517,7 @@ def main():
     dp.add_handler(unlock_conv_handler)
     dp.add_handler(timeleft_handler)
     dp.add_handler(agree_handler)
+    dp.add_handler(vote_callback_handler)
     dp.add_handler(unknown_handler)
     dp.add_error_handler(error)
 
