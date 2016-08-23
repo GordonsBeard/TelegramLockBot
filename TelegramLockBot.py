@@ -392,6 +392,7 @@ def vote(bot, update, args):
     other_user_key = 'user:{0}'.format(args[0].replace("@", ""))
     other_user_locked = db.hexists(other_user_key, 'endtime')
     other_user_name = db.hget(other_user_key, 'username')
+    other_user_firstname = db.hget(other_user_key, 'firstname')
 
     # Do not continue if user is not locked
     if not other_user_locked:
@@ -417,12 +418,13 @@ def vote(bot, update, args):
         difficulty = db.hget(other_user_key, 'difficulty')
         endtime = db.hget(other_user_key, 'endtime')
 
-        msg = '%s is locked for a "%s" while.\n' % (other_user_name, difficulty) 
+        msg = '%s is locked for a "%s" while.\n' % (other_user_firstname, difficulty) 
         msg += 'They are currently slated to be unlocked [%s].\n' % endtime
         msg += '*Would you like to Add or Remove time to/from this lockup?*'
 
         bot.sendMessage(update.message.chat_id, 
                         text=msg,
+                        parse_mode='Markdown',
                         reply_markup=InlineKeyboardMarkup(callback_keyboard))
 
     return
